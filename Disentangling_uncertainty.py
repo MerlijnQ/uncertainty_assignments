@@ -1,6 +1,9 @@
 import torch
 import statistics
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
 from torch import nn
 from tqdm import tqdm
 from torch.nn import functional as F
@@ -86,7 +89,7 @@ def train_model(model, x, y, fase_1=True, epochs=100, learning_rate=0.01):
             optimizer.step()
         median_loss = statistics.median(results)
         writer.add_scalar(f"Loss/train_{"MSE" if fase_1 else "GNLL Loss"}", median_loss, epoch)
-        print(f"Epoch {epoch}, Loss: {median_loss}")
+        # print(f"Epoch {epoch}, Loss: {median_loss}")
 
     return model
 
@@ -108,31 +111,46 @@ def disentangle(mean, variance):
     return epistemic, aleatoric, total_uncertainty
 
 
-def enable_dropout(model):
+def enable_dropconnect(model):
     for m in model.modules():
         if isinstance(m, drop_connect):
             m.inference = True
 
 
-def dropout_inference(model, x , T=50):
+def dropout_inference(model, x, T=50):
     model.eval()
-    enable_dropout(model)
+    enable_dropconnect(model)
+    x: torch.Tensor
     x = x.to(device=device)
     
-    tot_mean_predictions = []
-    tot_variance_predictions = []
-    for x_i in range(x.shape[0]):
+    epistemic = []
+    aleatoric = []
+    total_uncertainty = []
+    
+    for x_i in tqdm(range(x.shape[0]), total=x.shape[0]):
         x_cur = x[x_i]
         mean_predictions = []
         variance_predictions = []
         for _ in range(T):
             mean_pred, var_pred = model(x_cur)
-            mean_predictions.append(mean_pred)
-            variance_predictions.append(var_pred)
+            mean_predictions.append(mean_pred.cpu().item())
+            variance_predictions.append(var_pred.cpu().item())
+        
+        # Disentangle uncertainty
+        epistemic_uncertainty = statistics.variance(mean_predictions)
+        aleatoric_uncertainty = statistics.mean(variance_predictions)
+        epistemic.append(epistemic_uncertainty)
+        aleatoric.append(aleatoric_uncertainty)
+        total_uncertainty.append(epistemic_uncertainty + aleatoric_uncertainty)
     
-    # TODO
-    # I don't know where to average the results, and how
-    return disentangle(mean_predictions, variance_predictions)
+    df = pd.DataFrame({
+        "x_values": x.squeeze().cpu().numpy(),
+        "epistemic": epistemic,
+        "aleatoric": aleatoric,
+        "total_uncertainty": total_uncertainty,
+    })
+    
+    return df
 
 
 def main():
@@ -151,13 +169,36 @@ def main():
     model = train_model(model, x, y, fase_1=True, epochs=100)
     model = train_model(model, x, y, fase_1=False, epochs=100)
 
-    epistemic, aleatoric, total_uncertainty = dropout_inference(model, torch.tensor(OOD, dtype=torch.float32).view(-1, 1))
+    df = dropout_inference(model, torch.tensor(OOD, dtype=torch.float32).view(-1, 1))
+    print(df)
 
     """Make plots for both predictive
     and each source of uncertainty, and argue/describe/analyze/discuss if each uncertainty estimate makes
     sense or not. For this use your in-distribution and out of distribution datasets"""
     #To see if it performs well we can concatonate the OOD and ID data, create grond truth labels and plot the AUROC which should be high -> SkLearn has a build in AUROC function for this
     #Furthermore we can plot the graphs for both uncertainties for OOD and ID and see the differfence
+
+    # Plot all the different uncertainties
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+
+    axes[0].plot(df['x_values'], df['epistemic'], label='Epistemic', color='blue')
+    axes[0].set_title('Epistemic Uncertainty')
+    axes[0].set_xlabel('x_values')
+    axes[0].set_ylabel('Uncertainty')
+    axes[0].grid(True)
+    axes[1].plot(df['x_values'], df['aleatoric'], label='Aleatoric', color='green')
+    axes[1].set_title('Aleatoric Uncertainty')
+    axes[1].set_xlabel('x_values')
+    axes[1].set_ylabel('Uncertainty')
+    axes[1].grid(True)
+    axes[2].plot(df['x_values'], df['total_uncertainty'], label='Total Uncertainty', color='red')
+    axes[2].set_title('Total Uncertainty')
+    axes[2].set_xlabel('x_values')
+    axes[2].set_ylabel('Uncertainty')
+    axes[2].grid(True)
+
+    plt.tight_layout()
+    plt.show()
 
 
 if __name__ == '__main__':
