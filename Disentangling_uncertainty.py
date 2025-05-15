@@ -198,7 +198,7 @@ def main():
     axes[2].grid(True)
 
     plt.tight_layout()
-    plt.show()
+    plt.savefig("uncertainties_plots.png")
 
 
 if __name__ == '__main__':
