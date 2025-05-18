@@ -8,6 +8,7 @@ from torch import nn
 from tqdm import tqdm
 from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
+from sklearn.metrics import roc_auc_score, roc_curve
 
 Mean = 0.0
 SD_1 = 0.19
@@ -162,7 +163,7 @@ def main():
     torch.manual_seed(42)
     x = np.linspace(-10, 10, 1000)
     y = sample_distribution(x)
-    OOD = np.linspace(-20, 20, 1000)
+    OOD = np.linspace(11, 35, 1000)
 
     # Create and train model
     model = regression_model()
@@ -175,7 +176,7 @@ def main():
     """Make plots for both predictive
     and each source of uncertainty, and argue/describe/analyze/discuss if each uncertainty estimate makes
     sense or not. For this use your in-distribution and out of distribution datasets"""
-    #To see if it performs well we can concatonate the OOD and ID data, create grond truth labels and plot the AUROC which should be high -> SkLearn has a build in AUROC function for this
+    #To see if it performs well we can concatonate the OOD and ID data, create ground truth labels and plot the AUROC which should be high -> SkLearn has a build in AUROC function for this
     #Furthermore we can plot the graphs for both uncertainties for OOD and ID and see the differfence
 
     # Plot all the different uncertainties
@@ -199,7 +200,39 @@ def main():
 
     plt.tight_layout()
     plt.savefig("uncertainties_plots.png")
+    
+    #AUROC
+    ID_x = np.linspace(-10, 10, 1000)
+    OOD_x = np.linspace(11, 35, 1000)
+    
+    ID_tensor = torch.tensor(ID_x, dtype=torch.float32).view(-1, 1)
+    OOD_tensor = torch.tensor(OOD_x, dtype=torch.float32).view(-1, 1)
 
+    df_id = dropout_inference(model, ID_tensor)
+    df_ood = dropout_inference(model, OOD_tensor)
+    
+    df_id["label"] = 0
+    df_ood["label"] = 1
+    
+    df_all = pd.concat([df_id, df_ood], ignore_index=True)
+    
+    labels = df_all["label"].values
+    scores = df_all["total_uncertainty"].values
+    
+    auroc = roc_auc_score(labels, scores)
+    print(f"AUROC: {auroc}")
+    
+    false_possitive_rate, true_positive_rate, _ = roc_curve(labels, scores)
+    plt.figure(figsize=(6, 5))
+    plt.plot(false_possitive_rate, true_positive_rate, label=f"AUROC = {auroc:.2f}")
+    plt.plot([0, 1], [0, 1], linestyle="--", color="gray")
+    plt.xlabel("False positive rate")
+    plt.ylabel("True positive rate")
+    plt.title("ROC for total uncertainty")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig("roc_curve_uncertainty.png")
 
 if __name__ == '__main__':
     main()
