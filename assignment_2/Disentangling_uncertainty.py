@@ -168,7 +168,7 @@ def main():
     # Create and train model
     model = regression_model()
     model = train_model(model, x, y, fase_1=True, epochs=100)
-    model = train_model(model, x, y, fase_1=False, epochs=100)
+    model = train_model(model, x, y, fase_1=False, epochs=200)
 
     df = dropout_inference(model, torch.tensor(OOD, dtype=torch.float32).view(-1, 1))
     print(df)
