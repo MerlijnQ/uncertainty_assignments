@@ -201,6 +201,41 @@ def main():
     plt.tight_layout()
     plt.savefig("uncertainties_plots.png")
     
+    # Smooth the curves using a rolling mean
+    df['epistemic_smooth'] = df['epistemic'].rolling(window=25, center=True).mean()
+    df['aleatoric_smooth'] = df['aleatoric'].rolling(window=25, center=True).mean()
+    df['total_smooth'] = df['total_uncertainty'].rolling(window=25, center=True).mean()
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+
+    axes[0].plot(df['x_values'], df['epistemic'], label='Epistemic', color='blue', alpha=0.3)
+    axes[0].plot(df['x_values'], df['epistemic_smooth'], label='Smoothed', color='blue')
+    axes[0].set_title('Epistemic Uncertainty')
+    axes[0].set_xlabel('x_values')
+    axes[0].set_ylabel('Uncertainty')
+    axes[0].grid(True)
+
+    axes[1].plot(df['x_values'], df['aleatoric'], label='Aleatoric', color='green', alpha=0.3)
+    axes[1].plot(df['x_values'], df['aleatoric_smooth'], label='Smoothed', color='green')
+    axes[1].set_title('Aleatoric Uncertainty')
+    axes[1].set_xlabel('x_values')
+    axes[1].set_ylabel('Uncertainty')
+    axes[1].grid(True)
+
+    axes[2].plot(df['x_values'], df['total_uncertainty'], label='Total', color='red', alpha=0.3)
+    axes[2].plot(df['x_values'], df['total_smooth'], label='Smoothed', color='red')
+    axes[2].set_title('Total Uncertainty')
+    axes[2].set_xlabel('x_values')
+    axes[2].set_ylabel('Uncertainty')
+    axes[2].grid(True)
+
+    # Add legends
+    for ax in axes:
+        ax.legend()
+
+    plt.tight_layout()
+    plt.savefig("uncertainties_plots_with_smooth.png")
+    
     #AUROC
     ID_x = np.linspace(-10, 10, 1000)
     OOD_x = np.linspace(11, 35, 1000)
