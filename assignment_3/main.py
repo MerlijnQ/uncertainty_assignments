@@ -3,7 +3,11 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
 from bbb import BayesianCNN
+from metrics import metric
 
+def Temp_scale():
+    "Based on the calibration plots we can finetune our model. Optionally we can calculate ECE"
+    pass
 
 def setSeed():
     pass
