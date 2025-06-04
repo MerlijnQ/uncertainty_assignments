@@ -10,11 +10,15 @@ from torch.utils.data import DataLoader, random_split
 from torch.utils.tensorboard import SummaryWriter
 
 from bbb import BayesianCNN
+from metrics import metric
 
 LEARNING_RATE = 1e-2
 EPOCHS = 100
 writer = SummaryWriter(log_dir="logs")
 
+def Temp_scale():
+    "Based on the calibration plots we can finetune our model. Optionally we can calculate ECE"
+    pass
 
 def set_seed():
     pass
