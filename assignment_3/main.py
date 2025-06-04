@@ -11,6 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from BCNN import metrics
 
+from basic_cnn import basicCNN
 from bbb import BayesianCNN
 from metrics import metric
 
@@ -27,8 +28,62 @@ def set_seed():
     pass
 
 
-def train_ensemble():
-    pass
+def train_ensemble(training_loader, n_models = 3):
+    ensemble = []
+    loss_function = nn.CrossEntropyLoss()
+    
+    for i in range(n_models):
+        model = basicCNN()
+        optimiser = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+
+        for epoch in range(EPOCHS):
+            model.train()
+            losses = []
+            correct = 0
+            
+            for x_batch, y_batch in training_loader:
+                optimiser.zero_grad()
+                
+                outputs = model(x_batch)
+                loss = loss_function(outputs, y_batch)
+                loss.backward()
+                optimiser.step()
+                
+                losses.append(loss.item())
+                correct += (outputs.argmax(dim=1) == y_batch).sum().item
+                
+            accuracy = correct / len(training_loader.dataset)
+            median_loss = statistics.median(losses)
+            
+            print(f"Epoch {epoch+1}/{EPOCHS}: loss = {median_loss:.4f} || accuracy = {accuracy:.4f}")
+            
+        ensemble.append(model)
+        
+    return ensemble
+
+
+def test_ensemble(test_loader, ensemble: list[basicCNN]):
+    for model in ensemble:
+        model.eval()
+        
+    correct = 0
+    total = 0
+    
+    with torch.no_grad():
+        for x_batch, y_batch in test_loader:
+            outputs = torch.stack([
+                F.softmax(model(x_batch), dim=1) for model in ensemble
+            ])
+            
+            avg_output = outputs.mean(dim=0)
+            
+            preds = avg_output.argmax(dim=1)
+            correct += (preds == y_batch).sum().item()
+            total += y_batch.size(0)
+            
+    accuracy = correct / total
+    
+    return accuracy
 
 
 def train_bcnn(training_loader) -> BayesianCNN:
@@ -53,6 +108,7 @@ def train_bcnn(training_loader) -> BayesianCNN:
                 outputs[:, :, i] = model_output
             outputs = outputs.mean(dim=2)
 
+            # kl term is computed but not used?
             loss_value = loss(outputs, y_batch)
             loss_value.backward()
             
@@ -125,6 +181,9 @@ def main():
     print(results_bayesian)
     
     # ensemble_cnn = train_ensemble(mnist_train_loader, mnist_test_loader)
+    mnist_train_loader, mnist_test_loader, fmnist_train_loader, fmnist_test_loaderr = get_data()
+    # bayesian_cnn = train_bcnn(mnist_train_loader, mnist_test_loader)
+    ensemble_cnn = train_ensemble(mnist_train_loader, mnist_test_loader)
 
 
 if __name__ == "__main__":
