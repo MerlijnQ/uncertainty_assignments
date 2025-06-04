@@ -5,11 +5,11 @@ from torch.utils.data import DataLoader
 from bbb import BayesianCNN
 
 
-def setSeed():
+def set_seed():
     pass
 
 
-def train():
+def train(training_loader, testing_loader, model):
     pass
 
 
@@ -17,11 +17,11 @@ def inference():
     pass
 
 
-def deepEnsemble():
+def deep_ensemble():
     pass
 
 
-def getData():
+def get_data():
     transform = transforms.Compose([
         transforms.ToTensor(),  # Converts to tensor and normalize to [0, 1]
     ])
@@ -45,7 +45,9 @@ def getData():
 
 
 def main():
-    pass
+    # Setup
+    mnist_train_loader, mnist_test_loader, fmnist_train_loader, fmnist_test_loader = get_data()
+    bayesian_cnn = BayesianCNN()
 
 
 if __name__ == "__main__":
