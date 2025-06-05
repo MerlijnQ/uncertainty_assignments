@@ -117,8 +117,11 @@ def train_bcnn(training_loader, val_loader) -> BayesianCNN:
                 kl += _kl
                 outputs[:, :, i] = F.log_softmax(model_output, dim=1)
 
-            # kl term is computed but not used?
-            loss_value = loss(outputs, y_batch)
+            outputs = utils.logmeanexp(outputs, dim=2)
+            kl = kl / num_ens
+
+            beta = metrics.get_beta(i-1, BATCH_SIZE, "standard", epoch, EPOCHS)
+            loss_value = loss(outputs, y_batch, kl, beta)
             loss_value.backward()
             optimizer.step()
             
@@ -227,9 +230,6 @@ def main():
     print(results_bayesian)
     exit()
     
-    # ensemble_cnn = train_ensemble(mnist_train_loader, mnist_test_loader)
-    mnist_train_loader, mnist_test_loader, fmnist_train_loader, fmnist_test_loaderr = get_data()
-    # bayesian_cnn = train_bcnn(mnist_train_loader, mnist_test_loader)
     ensemble_cnn = train_ensemble(mnist_train_loader, mnist_test_loader)
 
 
