@@ -9,11 +9,14 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, random_split
 from torch.utils.tensorboard import SummaryWriter
 
+from BCNN import metrics
+
 from bbb import BayesianCNN
 from metrics import metric
 
 LEARNING_RATE = 1e-2
-EPOCHS = 100
+EPOCHS = 1
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 writer = SummaryWriter(log_dir="logs")
 
 def Temp_scale():
@@ -30,22 +33,25 @@ def train_ensemble():
 
 def train_bcnn(training_loader) -> BayesianCNN:
     # Returns a trained bcnn on the given training and validation loader
-    model = BayesianCNN()
+    model = BayesianCNN().to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
-    loss = nn.CrossEntropyLoss()
+    loss = nn.CrossEntropyLoss().to(DEVICE)
+    training_loader = training_loader
     
     num_ens = 1
     for epoch in tqdm(range(EPOCHS), total=EPOCHS):
         train_results = []
         for x_batch, y_batch in training_loader:
+            x_batch, y_batch = x_batch.to(DEVICE), y_batch.to(DEVICE)
             optimizer.zero_grad()
-            outputs = torch.zeros(x_batch.shape[0], model.num_classes, num_ens)
+            outputs = torch.zeros(x_batch.shape[0], model.num_classes, num_ens, device=DEVICE)
             kl = 0.0
             
             for i in range(num_ens):
                 model_output, _kl = model.forward(x_batch)
                 kl += _kl
-                outputs[:, :, i] = F.softmax(model_output, dim=1).data
+                outputs[:, :, i] = model_output
+            outputs = outputs.mean(dim=2)
 
             loss_value = loss(outputs, y_batch)
             loss_value.backward()
@@ -65,12 +71,18 @@ def test_bcnn(testing_loader, model: BayesianCNN):
 
     num_ens = 10
     for x_batch, y_batch in testing_loader:
+        x_batch, y_batch = x_batch.to(DEVICE), y_batch.to(DEVICE)
         outputs = torch.zeros(x_batch.shape[0], model.num_classes, num_ens)
         for i in range(num_ens):
             model_output, _kl = model.forward(x_batch)
-            outputs[:, :, i] = F.softmax(model_output, dim=1).data
-        
+            outputs[:, :, i] = model_output
+        outputs = outputs.mean(dim=2)
+        outputs = F.softmax(outputs, dim=1).data
+
+        # Appends probability scores per y_batch, but don't understand the tensor itself
+        # Actually I think first are all the probs and second is the highest
         results.append((outputs, y_batch))
+        break
     
     return results
 
@@ -107,9 +119,12 @@ def get_data():
 
 
 def main():
-    mnist_train_loader, mnist_test_loader, fmnist_train_loader, fmnist_test_loaderr = get_data()
-    bayesian_cnn = train_bcnn(mnist_train_loader, mnist_test_loader)
-    ensemble_cnn = train_ensemble(mnist_train_loader, mnist_test_loader)
+    mnist_train_loader, mnist_test_loader, fmnist_train_loader, fmnist_test_loader = get_data()
+    bayesian_cnn = train_bcnn(mnist_train_loader)
+    results_bayesian = test_bcnn(fmnist_test_loader, bayesian_cnn)
+    print(results_bayesian)
+    
+    # ensemble_cnn = train_ensemble(mnist_train_loader, mnist_test_loader)
 
 
 if __name__ == "__main__":

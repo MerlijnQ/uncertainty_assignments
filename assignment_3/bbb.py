@@ -8,6 +8,8 @@ from torch import nn
 class BayesianCNN(ModuleWrapper):
     def __init__(self):
         super().__init__()
+        self.num_classes = 10
+        
         self.conv1 = layers.BBB_Conv2d(1, 6, 5, 1)
         self.relu1 = nn.ReLU()
         self.avg1 = nn.AvgPool2d(2, 2)
