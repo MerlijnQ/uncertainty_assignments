@@ -15,10 +15,11 @@ from BCNN import utils
 from basic_cnn import basicCNN
 from bbb import BayesianCNN
 from metrics import metric
+from tempScaling import calibrate, calibratedModel
 
 LEARNING_RATE = 1e-2
 BATCH_SIZE = 64
-EPOCHS = 25
+EPOCHS = 1
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 writer = SummaryWriter(log_dir="logs")
 
@@ -165,13 +166,11 @@ def test_bcnn(testing_loader, model: BayesianCNN):
             outputs[:, :, i] = model_output
         
         outputs = utils.logmeanexp(outputs, dim=2)
-        print(outputs.shape)
         outputs = F.softmax(outputs, dim=1)
-        print(outputs)
-        accs.append(metrics.acc(outputs, y_batch))
-        # results.append((outputs, y_batch))
+        # accs.append(metrics.acc(outputs, y_batch))
+        results.append((outputs, y_batch))
     
-    return accs
+    return results
 
 
 def get_data(val_ratio=0.1):
@@ -217,21 +216,51 @@ def main():
     # Get data
     (mnist_train_loader, mnist_val_loader, mnist_test_loader,
      fmnist_train_loader, fmnist_val_loader, fmnist_test_loader) = get_data()
+    assert len(fmnist_test_loader) == len(mnist_test_loader)
     
     # Train models
     bayesian_cnn = train_bcnn(mnist_train_loader, mnist_val_loader)
-    results_bayesian = test_bcnn(mnist_test_loader, bayesian_cnn)
-
-    # Calibration plot (1)
-
-    # Calibration
-    
-    # Calibration plot (2)
-
-    # Test models    
     ensemble_cnn = train_ensemble(mnist_train_loader, mnist_test_loader)
 
+    # Calibration plot (1)
+    metric_maker = metric()
+    predictions, labels = test_bcnn(mnist_val_loader, bayesian_cnn)
+    metric_maker.calibration_plot(predictions, labels, "calibration_bcnn_1")
+    predictions, labels = test_ensemble(mnist_val_loader, ensemble_cnn)
+    metric_maker.calibration_plot(predictions, labels, "calibration_ens_1")
+
+    # Calibration
+    calibrated_bayesian_cnn = calibratedModel(bayesian_cnn)
+    calibrated_ensemble_cnn = [calibratedModel(ensemble_cnn[i]) for i in range(len(ensemble_cnn))]
+    
+    calibrator = calibrate()
+    calibrated_bayesian_cnn = calibrator.optimize(mnist_val_loader, calibrated_bayesian_cnn)
+    calibrated_ensemble_cnn = calibrator.optimize(mnist_val_loader, calibrated_ensemble_cnn)
+    
+    # Calibration plot (2)
+    predictions, labels = test_bcnn(mnist_val_loader, calibrated_bayesian_cnn)
+    metric_maker.calibration_plot(predictions, labels, "calibration_bcnn_1")
+    predictions, labels = test_ensemble(mnist_val_loader, calibrated_ensemble_cnn)
+    metric_maker.calibration_plot(predictions, labels, "calibration_ens_1")
+
+    # Test models
+    mnist_results_bayesian = test_bcnn(mnist_test_loader, calibrated_bayesian_cnn)
+    mnist_results_ensemble = test_ensemble(mnist_test_loader, calibrated_ensemble_cnn)
+    fmnist_results_bayesian = test_bcnn(fmnist_test_loader, calibrated_bayesian_cnn)
+    fmnist_results_ensemble = test_ensemble(fmnist_test_loader, calibrated_ensemble_cnn)
+
     # Create final plots
+    metric_maker.auroc(mnist_results_bayesian, fmnist_results_bayesian)
+    metric_maker.auroc(mnist_results_ensemble, fmnist_results_ensemble)
+
+    metric_maker.confidence_OOD_ID(mnist_results_bayesian, fmnist_results_bayesian)
+    metric_maker.confidence_OOD_ID(mnist_results_ensemble, fmnist_results_ensemble)
+    
+    metric_maker.entropy_plot(mnist_results_bayesian, fmnist_results_bayesian)
+    metric_maker.entropy_plot(mnist_results_ensemble, fmnist_results_ensemble)
+    
+    metric_maker.qualitative(mnist_results_bayesian, mnist_test_loader, fmnist_results_bayesian, fmnist_test_loader)
+    metric_maker.qualitative(mnist_results_ensemble, mnist_test_loader, fmnist_results_ensemble, fmnist_test_loader)
 
 if __name__ == "__main__":
     main()

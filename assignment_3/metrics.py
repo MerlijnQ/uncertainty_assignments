@@ -32,7 +32,7 @@ class metric():
         plt.savefig("roc_curve_uncertainty.png")
         plt.close()
 
-    def calibration_plot(self, predictions, labels, bins=10): 
+    def calibration_plot(self, predictions, labels, bins=10, file_name=""): 
         #We need to plot confidence against accuracy
         y_pred = np.argmax(predictions, axis=1)
         y_conf = np.max(predictions, axis=1)
@@ -56,7 +56,7 @@ class metric():
         plt.ylabel("Accuracy")
         plt.grid(False)
         plt.tight_layout()
-        plt.savefig("reliability_plot.png")
+        plt.savefig(f"{file_name}.png")
         plt.close()
 
     def confidence_OOD_ID(self, OOD_pred, ID_pred, bins=10):
