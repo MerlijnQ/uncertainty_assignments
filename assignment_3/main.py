@@ -46,6 +46,7 @@ def train_bcnn(training_loader) -> BayesianCNN:
                 model_output, _kl = model.forward(x_batch)
                 kl += _kl
                 outputs[:, :, i] = F.softmax(model_output, dim=1).data
+                #Cross entropy already does softmax on the inside!!!!
 
             loss_value = loss(outputs, y_batch)
             loss_value.backward()
