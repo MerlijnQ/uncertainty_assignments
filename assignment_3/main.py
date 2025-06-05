@@ -41,7 +41,7 @@ def train_ensemble(training_loader, n_models = 3):
             losses = []
             correct = 0
             
-            for x_batch, y_batch in training_loader:
+            for x_batch, y_batch in tqdm(training_loader):
                 optimiser.zero_grad()
                 
                 outputs = model(x_batch)
@@ -68,6 +68,7 @@ def test_ensemble(test_loader, ensemble: list[basicCNN]):
         
     correct = 0
     total = 0
+    pred_target_pairs = []
     
     with torch.no_grad():
         for x_batch, y_batch in test_loader:
@@ -76,14 +77,16 @@ def test_ensemble(test_loader, ensemble: list[basicCNN]):
             ])
             
             avg_output = outputs.mean(dim=0)
-            
             preds = avg_output.argmax(dim=1)
+            
+            pred_target_pairs.extend(zip(preds.tolist(), y_batch.tolist()))
+            
             correct += (preds == y_batch).sum().item()
             total += y_batch.size(0)
             
     accuracy = correct / total
     
-    return accuracy
+    return pred_target_pairs, accuracy
 
 
 def train_bcnn(training_loader) -> BayesianCNN:
