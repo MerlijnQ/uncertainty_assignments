@@ -8,7 +8,7 @@ import seaborn as sns
 import torch
 
 
-class metric():
+class Metric():
     def __init__(self):
         print("Metrics initialized. Note that each metric expetcs softmax predictions. We assume all predictions are .cpu().numpy()")
 
@@ -42,7 +42,7 @@ class metric():
         assigned_bins = np.digitize(y_conf, bin_points, right=True) #Assign values to a bin
 
         bin_accuracy = []
-        bin_confidence = {}
+        bin_confidence = []
 
         for i in range(0, bins+1):
             mask = assigned_bins == i

@@ -1,176 +1,17 @@
+import os
 import torch
-import statistics
-import pandas as pd
 
-import torch.nn as nn
-import torch.nn.functional as F
-from tqdm import tqdm
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, random_split
-from torch.utils.tensorboard import SummaryWriter
+from sklearn.model_selection import train_test_split
 
-from BCNN import metrics
-from BCNN import utils
-
-from basic_cnn import basicCNN
+from metrics import Metric
 from bbb import BayesianCNN
-from metrics import metric
-from tempScaling import calibrate, calibratedModel
+from basicCNN import basicCNN
+from train_test_models import TrainInference
+from tempScaling import Calibrate, CalibratedModel
 
-LEARNING_RATE = 1e-2
 BATCH_SIZE = 64
-EPOCHS = 1
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-writer = SummaryWriter(log_dir="logs")
-
-
-def Temp_scale():
-    "Based on the calibration plots we can finetune our model. Optionally we can calculate ECE"
-    pass
-
-
-def train_ensemble(training_loader, n_models = 3):
-    ensemble = []
-    loss_function = nn.CrossEntropyLoss()
-    
-    for i in range(n_models):
-        model = basicCNN()
-        optimiser = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
-
-        for epoch in range(EPOCHS):
-            model.train()
-            losses = []
-            correct = 0
-            
-            for x_batch, y_batch in tqdm(training_loader):
-                optimiser.zero_grad()
-                
-                outputs = model(x_batch)
-                loss = loss_function(outputs, y_batch)
-                loss.backward()
-                optimiser.step()
-                
-                losses.append(loss.item())
-                correct += (outputs.argmax(dim=1) == y_batch).sum().item
-                
-            accuracy = correct / len(training_loader.dataset)
-            median_loss = statistics.median(losses)
-            
-            print(f"Epoch {epoch+1}/{EPOCHS}: loss = {median_loss:.4f} || accuracy = {accuracy:.4f}")
-            
-        ensemble.append(model)
-        
-    return ensemble
-
-
-@torch.no_grad
-def test_ensemble(test_loader, ensemble: list[basicCNN]):
-    for model in ensemble:
-        model.eval()
-        
-    correct = 0
-    total = 0
-    pred_target_pairs = []
-    
-    with torch.no_grad():
-        for x_batch, y_batch in test_loader:
-            outputs = torch.stack([
-                F.softmax(model(x_batch), dim=1) for model in ensemble
-            ])
-            
-            avg_output = outputs.mean(dim=0)
-            preds = avg_output.argmax(dim=1)
-            
-            pred_target_pairs.extend(zip(preds.tolist(), y_batch.tolist()))
-            
-            correct += (preds == y_batch).sum().item()
-            total += y_batch.size(0)
-            
-    accuracy = correct / total
-    
-    return pred_target_pairs, accuracy
-
-
-def train_bcnn(training_loader, val_loader) -> BayesianCNN:
-    # Returns a trained bcnn on the given training loader
-    model = BayesianCNN().to(DEVICE)
-    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
-    loss = metrics.ELBO(BATCH_SIZE).to(DEVICE)
-    training_loader = training_loader
-    
-    num_ens = 1
-    for epoch in tqdm(range(EPOCHS), total=EPOCHS):
-        # Train loop
-        train_results = []
-        for i, (x_batch, y_batch) in enumerate(training_loader):
-            optimizer.zero_grad()
-
-            x_batch, y_batch = x_batch.to(DEVICE), y_batch.to(DEVICE)
-            outputs = torch.zeros(x_batch.shape[0], model.num_classes, num_ens, device=DEVICE)
-            
-            kl = 0.0
-            for i in range(num_ens):
-                model_output, _kl = model.forward(x_batch)
-                kl += _kl
-                outputs[:, :, i] = F.log_softmax(model_output, dim=1)
-
-            outputs = utils.logmeanexp(outputs, dim=2).to(DEVICE)
-            kl = kl / num_ens
-
-            beta = metrics.get_beta(i-1, BATCH_SIZE, "standard", epoch, EPOCHS)
-            loss_value = loss(outputs, y_batch, kl, beta)
-            loss_value.backward()
-            optimizer.step()
-            
-            train_results.append(loss_value.item())
-        mean_loss = statistics.mean(train_results)
-        writer.add_scalar(f"Training loss - bcnn", mean_loss, epoch)
-
-        # Val loop
-        val_results = []
-        for i, (x_batch, y_batch) in enumerate(val_loader):
-            x_batch, y_batch = x_batch.to(DEVICE), y_batch.to(DEVICE)
-            outputs = torch.zeros(x_batch.shape[0], model.num_classes, num_ens)
-
-            kl = 0.0
-            for i in range(num_ens):
-                model_outputs, _kl = model.forward(x_batch)
-                kl += _kl
-                outputs[:, :, i] = F.log_softmax(model_outputs, dim=1).data
-
-            kl = kl / num_ens
-            outputs = utils.logmeanexp(outputs, dim=2).to(DEVICE)
-
-            beta = metrics.get_beta(i-1, BATCH_SIZE, "standard", epoch, EPOCHS)
-            loss_value = loss(outputs, y_batch, kl, beta)
-            val_results.append(loss_value.item())
-        mean_loss = statistics.mean(val_results)
-        writer.add_scalar(f"Validation loss - bcnn", mean_loss, epoch)
-
-    return model
-
-
-@torch.no_grad
-def test_bcnn(testing_loader, model: BayesianCNN):
-    model.train(False)
-    results = []
-    accs = []
-
-    num_ens = 10
-    for i, (x_batch, y_batch) in enumerate(testing_loader):
-        x_batch, y_batch = x_batch.to(DEVICE), y_batch.to(DEVICE)
-        outputs = torch.zeros(x_batch.shape[0], model.num_classes, num_ens)
-
-        for i in range(num_ens):
-            model_output, _ = model.forward(x_batch)
-            outputs[:, :, i] = model_output
-        
-        outputs = utils.logmeanexp(outputs, dim=2)
-        outputs = F.softmax(outputs, dim=1)
-        # accs.append(metrics.acc(outputs, y_batch))
-        results.append((outputs, y_batch))
-    
-    return results
 
 
 def get_data(val_ratio=0.1):
@@ -180,18 +21,7 @@ def get_data(val_ratio=0.1):
 
     # Load full training datasets
     mnist_full_train = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
-    fmnist_full_train = datasets.FashionMNIST(root='./data', train=True, download=True, transform=transform)
-
-    # Calculate split sizes
-    mnist_val_size = int(len(mnist_full_train) * val_ratio)
-    mnist_train_size = len(mnist_full_train) - mnist_val_size
-
-    fmnist_val_size = int(len(fmnist_full_train) * val_ratio)
-    fmnist_train_size = len(fmnist_full_train) - fmnist_val_size
-
-    # Split the datasets
-    mnist_train, mnist_val = random_split(mnist_full_train, [mnist_train_size, mnist_val_size])
-    fmnist_train, fmnist_val = random_split(fmnist_full_train, [fmnist_train_size, fmnist_val_size])
+    mnist_train, mnist_val = train_test_split(mnist_full_train, test_size=val_ratio)
 
     # Load test datasets
     mnist_test = datasets.MNIST(root='./data', train=False, download=True, transform=transform)
@@ -202,65 +32,76 @@ def get_data(val_ratio=0.1):
     mnist_val_loader = DataLoader(mnist_val, batch_size=BATCH_SIZE, shuffle=False)
     mnist_test_loader = DataLoader(mnist_test, batch_size=BATCH_SIZE, shuffle=False)
 
-    fmnist_train_loader = DataLoader(fmnist_train, batch_size=BATCH_SIZE, shuffle=True)
-    fmnist_val_loader = DataLoader(fmnist_val, batch_size=BATCH_SIZE, shuffle=False)
     fmnist_test_loader = DataLoader(fmnist_test, batch_size=BATCH_SIZE, shuffle=False)
 
-    return (
-        mnist_train_loader, mnist_val_loader, mnist_test_loader,
-        fmnist_train_loader, fmnist_val_loader, fmnist_test_loader
-    )
+    return mnist_train_loader, mnist_val_loader, mnist_test_loader, fmnist_test_loader
 
 
 def main():
     # Get data
-    (mnist_train_loader, mnist_val_loader, mnist_test_loader,
-     fmnist_train_loader, fmnist_val_loader, fmnist_test_loader) = get_data()
+    mnist_train_loader, mnist_val_loader, mnist_test_loader, fmnist_test_loader = get_data()
     assert len(fmnist_test_loader) == len(mnist_test_loader)
     
-    # Train models
-    bayesian_cnn = train_bcnn(mnist_train_loader, mnist_val_loader)
-    ensemble_cnn = train_ensemble(mnist_train_loader, mnist_test_loader)
-
+    # Train models (or load if alreaddy trained)
+    inference_functions = TrainInference()
+    os.makedirs("models", exist_ok=True)
+    if os.path.exists(os.path.join("models", "BCNN.pth")):
+        bayesian_cnn = BayesianCNN()
+        model_state_dict = torch.load(os.path.join("models", "BCNN.pth"))
+        bayesian_cnn.load_state_dict(model_state_dict)
+    else:
+        bayesian_cnn = inference_functions.train_bcnn(mnist_train_loader, mnist_val_loader)
+        torch.save(bayesian_cnn.state_dict(), (os.path.join("models", "BCNN.pth")))
+    
+    if os.path.exists(os.path.join("models", "CNN_2.pth")):
+        ensemble_cnn = []
+        for i in range(3):
+            model = basicCNN()
+            model_state_dict = torch.load(os.path.join("models", f"CNN_{i}.pth"))
+            model.load_state_dict(model_state_dict)
+            ensemble_cnn.append(model)
+    else:
+        ensemble_cnn = inference_functions.train_ensemble(mnist_train_loader, mnist_val_loader)
+        for i, model in enumerate(ensemble_cnn):
+            torch.save(model.state_dict(), os.path.join("models", f"CNN_{i}.pth"))
+    
     # Calibration plot (1)
-    metric_maker = metric()
-    predictions, labels = test_bcnn(mnist_val_loader, bayesian_cnn)
+    metric_maker = Metric()
+    predictions, labels = inference_functions.bayesian_inference(mnist_val_loader, bayesian_cnn)
     metric_maker.calibration_plot(predictions, labels, "calibration_bcnn_1")
-    predictions, labels = test_ensemble(mnist_val_loader, ensemble_cnn)
+    predictions, labels = inference_functions.ensemble_inference(mnist_val_loader, ensemble_cnn)
     metric_maker.calibration_plot(predictions, labels, "calibration_ens_1")
 
-    # Calibration
-    calibrated_bayesian_cnn = calibratedModel(bayesian_cnn)
-    calibrated_ensemble_cnn = [calibratedModel(ensemble_cnn[i]) for i in range(len(ensemble_cnn))]
-    
-    calibrator = calibrate()
-    calibrated_bayesian_cnn = calibrator.optimize(mnist_val_loader, calibrated_bayesian_cnn)
-    calibrated_ensemble_cnn = calibrator.optimize(mnist_val_loader, calibrated_ensemble_cnn)
+    # Calibration    
+    calibrator = Calibrate()
+    calibrated_bayesian_cnn = calibrator.optimize(mnist_val_loader, bayesian_cnn)
+    calibrated_ensemble_cnn = [calibrator.optimize(mnist_val_loader, ensemble_cnn[i]) for i in range(len(ensemble_cnn))]
     
     # Calibration plot (2)
-    predictions, labels = test_bcnn(mnist_val_loader, calibrated_bayesian_cnn)
-    metric_maker.calibration_plot(predictions, labels, "calibration_bcnn_1")
-    predictions, labels = test_ensemble(mnist_val_loader, calibrated_ensemble_cnn)
-    metric_maker.calibration_plot(predictions, labels, "calibration_ens_1")
+    predictions, labels = inference_functions.bayesian_inference(mnist_val_loader, calibrated_bayesian_cnn)
+    metric_maker.calibration_plot(predictions, labels, "calibration_bcnn_2")
+    predictions, labels = inference_functions.ensemble_inference(mnist_val_loader, calibrated_ensemble_cnn)
+    metric_maker.calibration_plot(predictions, labels, "calibration_ens_2")
 
     # Test models
-    mnist_results_bayesian = test_bcnn(mnist_test_loader, calibrated_bayesian_cnn)
-    mnist_results_ensemble = test_ensemble(mnist_test_loader, calibrated_ensemble_cnn)
-    fmnist_results_bayesian = test_bcnn(fmnist_test_loader, calibrated_bayesian_cnn)
-    fmnist_results_ensemble = test_ensemble(fmnist_test_loader, calibrated_ensemble_cnn)
+    mnist_results_bayesian = inference_functions.bayesian_inference(mnist_test_loader, calibrated_bayesian_cnn)
+    mnist_results_ensemble = inference_functions.ensemble_inference(mnist_test_loader, calibrated_ensemble_cnn)
+    fmnist_results_bayesian = inference_functions.bayesian_inference(fmnist_test_loader, calibrated_bayesian_cnn)
+    fmnist_results_ensemble = inference_functions.ensemble_inference(fmnist_test_loader, calibrated_ensemble_cnn)
 
     # Create final plots
-    metric_maker.auroc(mnist_results_bayesian, fmnist_results_bayesian)
-    metric_maker.auroc(mnist_results_ensemble, fmnist_results_ensemble)
+    metric_maker.auroc(mnist_results_bayesian, fmnist_results_bayesian, "AUROC_bayesian")
+    metric_maker.auroc(mnist_results_ensemble, fmnist_results_ensemble, "AUROC_ensemble")
 
-    metric_maker.confidence_OOD_ID(mnist_results_bayesian, fmnist_results_bayesian)
-    metric_maker.confidence_OOD_ID(mnist_results_ensemble, fmnist_results_ensemble)
+    metric_maker.confidence_OOD_ID(mnist_results_bayesian, fmnist_results_bayesian, "confidence_bayesian")
+    metric_maker.confidence_OOD_ID(mnist_results_ensemble, fmnist_results_ensemble, "confidence_ensemble")
     
-    metric_maker.entropy_plot(mnist_results_bayesian, fmnist_results_bayesian)
-    metric_maker.entropy_plot(mnist_results_ensemble, fmnist_results_ensemble)
+    metric_maker.entropy_plot(mnist_results_bayesian, fmnist_results_bayesian, "entropy_bayesian")
+    metric_maker.entropy_plot(mnist_results_ensemble, fmnist_results_ensemble, "entropy_ensemble")
     
-    metric_maker.qualitative(mnist_results_bayesian, mnist_test_loader, fmnist_results_bayesian, fmnist_test_loader)
-    metric_maker.qualitative(mnist_results_ensemble, mnist_test_loader, fmnist_results_ensemble, fmnist_test_loader)
+    metric_maker.qualitative(mnist_results_bayesian, mnist_test_loader, fmnist_results_bayesian, fmnist_test_loader, "qualitative_bayesian")
+    metric_maker.qualitative(mnist_results_ensemble, mnist_test_loader, fmnist_results_ensemble, fmnist_test_loader, "qualitative_ensemble")
+
 
 if __name__ == "__main__":
     main()

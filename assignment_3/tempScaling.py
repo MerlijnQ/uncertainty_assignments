@@ -2,12 +2,14 @@ import torch
 from torch import nn, optim
 from torch.nn import functional as F
 
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
 "We scale the temperature to get a better calibrated model. The code is inspired on the following github: https://github.com/gpleiss/temperature_scaling/blob/master/temperature_scaling.py#L78"
 
 
-class calibratedModel(nn.Module):
+class CalibratedModel(nn.Module):
     def __init__(self, model):
-        super(calibratedModel, self).__init__()
+        super(CalibratedModel, self).__init__()
         self.model = model.eval()
         self.temperature = nn.Parameter(torch.ones(1) * 1.5)
 
@@ -17,14 +19,16 @@ class calibratedModel(nn.Module):
         return logits/temp
 
 
-class calibrate():
-    def __init__(self, model: calibratedModel, criterion=nn.CrossEntropyLoss, device='cpu'):  
-        self.model = model
+class Calibrate():
+    def __init__(self, criterion=nn.CrossEntropyLoss, device='cpu'):  
         self.criterion = criterion
         self.device = device
 
     
-    def optimize(self, val_loader):
+    def optimize(self, val_loader, model):
+
+        model.eval()
+        model = CalibratedModel(model)
 
         all_inputs, all_labels = [], []
         with torch.no_grad():
@@ -33,18 +37,18 @@ class calibrate():
                 all_inputs.append(inputs)
                 all_labels.append(labels)
 
-        all_inputs = torch.cat(all_inputs)
-        all_labels = torch.cat(all_labels)
+        all_inputs = torch.cat(all_inputs).to(DEVICE)
+        all_labels = torch.cat(all_labels).to(DEVICE)
 
-        optimizer = optim.LBFGS([self.model.temperature], lr=0.01, max_iter=50)
+        optimizer = optim.LBFGS([model.temperature], lr=0.01, max_iter=50)
         
         def eval():
             optimizer.zero_grad()
-            logits = self.model(all_inputs)
+            logits = model(all_inputs)
             loss = self.criterion(logits, all_labels)
             loss.backward()
             return loss
         
         optimizer.step(eval)
-        print(f"Optimal temperature: {self.model.temperature.item():.4f}")
-        return self.model        
+        print(f"Optimal temperature: {model.temperature.item():.4f}")
+        return model        
