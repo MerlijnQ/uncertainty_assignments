@@ -34,27 +34,30 @@ class Metric():
 
     def calibration_plot(self, predictions, labels, file_name, bins=10): 
         #We need to plot confidence against accuracy
+        
         y_pred = np.argmax(predictions, axis=1)
         y_conf = np.max(predictions, axis=1)
         correct = (y_pred == labels).astype(int)
 
-        bin_points = np.linspace(0, 1 , bins+1)
+        bin_points = np.linspace(0.0, 1.0 , bins+1)
+        centers = (bin_points[:-1] + bin_points[1:]) / 2 
         assigned_bins = np.digitize(y_conf, bin_points, right=True) #Assign values to a bin
 
         bin_accuracy = []
-        bin_confidence = []
 
-        for i in range(0, bins+1):
+        for i in range(1, bins+1):
             mask = assigned_bins == i
             bin_accuracy.append(np.mean(correct[mask]))
-            bin_confidence.append(np.mean(y_conf[mask]))
 
         plt.figure()
-        plt.plot(bin_confidence, bin_accuracy, marker='o')
+        width = bin_points[1] - bin_points[0]
+        plt.bar(centers, bin_accuracy, width=width, edgecolor='black', alpha=0.7)
         plt.plot([0, 1], [0, 1], linestyle='--', color='gray')
         plt.xlabel("Confidence")
         plt.ylabel("Accuracy")
         plt.grid(False)
+        plt.ylim(0, 1)
+        plt.xlim(0, 1)
         plt.tight_layout()
         plt.savefig(f"{file_name}.pdf")
         plt.close()
