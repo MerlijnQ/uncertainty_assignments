@@ -10,19 +10,23 @@ from torch.utils.data import DataLoader, random_split
 from torch.utils.tensorboard import SummaryWriter
 
 from BCNN import metrics
+from BCNN import utils
 
 from basic_cnn import basicCNN
 from bbb import BayesianCNN
 from metrics import metric
 
 LEARNING_RATE = 1e-2
+BATCH_SIZE = 64
 EPOCHS = 1
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 writer = SummaryWriter(log_dir="logs")
 
+
 def Temp_scale():
     "Based on the calibration plots we can finetune our model. Optionally we can calculate ECE"
     pass
+
 
 def set_seed():
     pass
@@ -62,6 +66,7 @@ def train_ensemble(training_loader, n_models = 3):
     return ensemble
 
 
+@torch.no_grad
 def test_ensemble(test_loader, ensemble: list[basicCNN]):
     for model in ensemble:
         model.eval()
@@ -89,36 +94,55 @@ def test_ensemble(test_loader, ensemble: list[basicCNN]):
     return pred_target_pairs, accuracy
 
 
-def train_bcnn(training_loader) -> BayesianCNN:
-    # Returns a trained bcnn on the given training and validation loader
+def train_bcnn(training_loader, val_loader) -> BayesianCNN:
+    # Returns a trained bcnn on the given training loader
     model = BayesianCNN().to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
-    loss = nn.CrossEntropyLoss().to(DEVICE)
+    loss = metrics.ELBO(BATCH_SIZE).to(DEVICE)
     training_loader = training_loader
     
     num_ens = 1
     for epoch in tqdm(range(EPOCHS), total=EPOCHS):
+        # Train loop
         train_results = []
-        for x_batch, y_batch in training_loader:
-            x_batch, y_batch = x_batch.to(DEVICE), y_batch.to(DEVICE)
+        for i, (x_batch, y_batch) in enumerate(training_loader):
             optimizer.zero_grad()
+
+            x_batch, y_batch = x_batch.to(DEVICE), y_batch.to(DEVICE)
             outputs = torch.zeros(x_batch.shape[0], model.num_classes, num_ens, device=DEVICE)
-            kl = 0.0
             
+            kl = 0.0
             for i in range(num_ens):
                 model_output, _kl = model.forward(x_batch)
                 kl += _kl
-                outputs[:, :, i] = model_output
-            outputs = outputs.mean(dim=2)
+                outputs[:, :, i] = F.log_softmax(model_output, dim=1)
 
             # kl term is computed but not used?
             loss_value = loss(outputs, y_batch)
             loss_value.backward()
+            optimizer.step()
             
             train_results.append(loss_value.item())
-            optimizer.step()
-        median_loss = statistics.median(train_results)
-        writer.add_scalar(f"Training loss - bcnn", median_loss, epoch)
+        mean_loss = statistics.mean(train_results)
+        writer.add_scalar(f"Training loss - bcnn", mean_loss, epoch)
+
+        # Val loop (TODO)
+        val_results = []
+        for i, (x_batch, y_batch) in enumerate(val_loader):
+            x_batch, y_batch = x_batch.to(DEVICE), y_batch.to(DEVICE)
+            outputs = torch.zeros(x_batch.shape[0], model.num_classes, num_ens)
+
+            for i in range(num_ens):
+                model_outputs, _ = model.forward(x_batch)
+                outputs[:, :, i] = F.log_softmax(model_outputs, dim=1).data
+
+            outputs = utils.logmeanexp(outputs, dim=2)
+
+            beta = metrics.get_beta(i-1, BATCH_SIZE, "standard", epoch, EPOCHS)
+            loss_value = loss(outputs, y_batch, kl, beta)
+            val_results.append(loss_value.item())
+        mean_loss = statistics.mean(val_results)
+        writer.add_scalar(f"Validation loss - bcnn", mean_loss, epoch)
 
     return model
 
@@ -127,23 +151,26 @@ def train_bcnn(training_loader) -> BayesianCNN:
 def test_bcnn(testing_loader, model: BayesianCNN):
     model.train(False)
     results = []
+    accs = []
 
     num_ens = 10
-    for x_batch, y_batch in testing_loader:
+    for i, (x_batch, y_batch) in enumerate(testing_loader):
         x_batch, y_batch = x_batch.to(DEVICE), y_batch.to(DEVICE)
         outputs = torch.zeros(x_batch.shape[0], model.num_classes, num_ens)
-        for i in range(num_ens):
-            model_output, _kl = model.forward(x_batch)
-            outputs[:, :, i] = model_output
-        outputs = outputs.mean(dim=2)
-        outputs = F.softmax(outputs, dim=1).data
 
-        # Appends probability scores per y_batch, but don't understand the tensor itself
-        # Actually I think first are all the probs and second is the highest
-        results.append((outputs, y_batch))
+        for i in range(num_ens):
+            model_output, _ = model.forward(x_batch)
+            outputs[:, :, i] = model_output
+        
+        outputs = utils.logmeanexp(outputs, dim=2)
+        print(outputs.shape)
+        outputs = F.softmax(outputs, dim=1)
+        print(outputs)
+        accs.append(metrics.acc(outputs, y_batch))
+        # results.append((outputs, y_batch))
         break
     
-    return results
+    return accs
 
 
 def inference():
@@ -154,34 +181,51 @@ def deep_ensemble():
     pass
 
 
-def get_data():
+def get_data(val_ratio=0.1):
     transform = transforms.Compose([
         transforms.ToTensor(),  # Converts to tensor and normalize to [0, 1]
     ])
 
-    # Load MNIST dataset
-    mnist_train = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
-    mnist_test = datasets.MNIST(root='./data', train=False, download=True, transform=transform)
+    # Load full training datasets
+    mnist_full_train = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
+    fmnist_full_train = datasets.FashionMNIST(root='./data', train=True, download=True, transform=transform)
 
-    # Load Fashion MNIST dataset
-    fmnist_train = datasets.FashionMNIST(root='./data', train=True, download=True, transform=transform)
+    # Calculate split sizes
+    mnist_val_size = int(len(mnist_full_train) * val_ratio)
+    mnist_train_size = len(mnist_full_train) - mnist_val_size
+
+    fmnist_val_size = int(len(fmnist_full_train) * val_ratio)
+    fmnist_train_size = len(fmnist_full_train) - fmnist_val_size
+
+    # Split the datasets
+    mnist_train, mnist_val = random_split(mnist_full_train, [mnist_train_size, mnist_val_size])
+    fmnist_train, fmnist_val = random_split(fmnist_full_train, [fmnist_train_size, fmnist_val_size])
+
+    # Load test datasets
+    mnist_test = datasets.MNIST(root='./data', train=False, download=True, transform=transform)
     fmnist_test = datasets.FashionMNIST(root='./data', train=False, download=True, transform=transform)
 
     # Create data loaders
-    mnist_train_loader = DataLoader(mnist_train, batch_size=64, shuffle=True)
-    mnist_test_loader = DataLoader(mnist_test, batch_size=64, shuffle=False)
+    mnist_train_loader = DataLoader(mnist_train, batch_size=BATCH_SIZE, shuffle=True)
+    mnist_val_loader = DataLoader(mnist_val, batch_size=BATCH_SIZE, shuffle=False)
+    mnist_test_loader = DataLoader(mnist_test, batch_size=BATCH_SIZE, shuffle=False)
 
-    fmnist_train_loader = DataLoader(fmnist_train, batch_size=64, shuffle=True)
-    fmnist_test_loader = DataLoader(fmnist_test, batch_size=64, shuffle=False)
-    
-    return mnist_train_loader, mnist_test_loader, fmnist_train_loader, fmnist_test_loader
+    fmnist_train_loader = DataLoader(fmnist_train, batch_size=BATCH_SIZE, shuffle=True)
+    fmnist_val_loader = DataLoader(fmnist_val, batch_size=BATCH_SIZE, shuffle=False)
+    fmnist_test_loader = DataLoader(fmnist_test, batch_size=BATCH_SIZE, shuffle=False)
 
+    return (
+        mnist_train_loader, mnist_val_loader, mnist_test_loader,
+        fmnist_train_loader, fmnist_val_loader, fmnist_test_loader
+    )
 
 def main():
-    mnist_train_loader, mnist_test_loader, fmnist_train_loader, fmnist_test_loader = get_data()
-    bayesian_cnn = train_bcnn(mnist_train_loader)
-    results_bayesian = test_bcnn(fmnist_test_loader, bayesian_cnn)
+    (mnist_train_loader, mnist_val_loader, mnist_test_loader,
+     fmnist_train_loader, fmnist_val_loader, fmnist_test_loader) = get_data()
+    bayesian_cnn = train_bcnn(mnist_train_loader, mnist_val_loader)
+    results_bayesian = test_bcnn(mnist_test_loader, bayesian_cnn)
     print(results_bayesian)
+    exit()
     
     # ensemble_cnn = train_ensemble(mnist_train_loader, mnist_test_loader)
     mnist_train_loader, mnist_test_loader, fmnist_train_loader, fmnist_test_loaderr = get_data()
