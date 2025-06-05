@@ -12,7 +12,7 @@ class metric():
     def __init__(self):
         print("Metrics initialized. Note that each metric expetcs softmax predictions. We assume all predictions are .cpu().numpy()")
 
-    def auroc(self, ID_score, OOD_score, entropy_pred=True):
+    def auroc(self, ID_score, OOD_score, file_name, entropy_pred=True):
         y_true = np.concatenate(np.zeros_like(len(ID_score)), np.ones_like(len(OOD_score)))
         if entropy_pred:
             ID_score, OOD_score = entropy(ID_score.T), entropy(OOD_score.T)
@@ -29,10 +29,10 @@ class metric():
         plt.legend()
         plt.grid(True)
         plt.tight_layout()
-        plt.savefig("roc_curve_uncertainty.png")
+        plt.savefig(f"{file_name}.pdf")
         plt.close()
 
-    def calibration_plot(self, predictions, labels, bins=10, file_name=""): 
+    def calibration_plot(self, predictions, labels, file_name, bins=10): 
         #We need to plot confidence against accuracy
         y_pred = np.argmax(predictions, axis=1)
         y_conf = np.max(predictions, axis=1)
@@ -56,10 +56,10 @@ class metric():
         plt.ylabel("Accuracy")
         plt.grid(False)
         plt.tight_layout()
-        plt.savefig(f"{file_name}.png")
+        plt.savefig(f"{file_name}.pdf")
         plt.close()
 
-    def confidence_OOD_ID(self, OOD_pred, ID_pred, bins=10):
+    def confidence_OOD_ID(self, ID_pred, OOD_pred, file_name, bins=10):
         id_conf = np.max(ID_pred, axis=1)
         ood_conf = np.max(OOD_pred, axis=1)
 
@@ -69,11 +69,11 @@ class metric():
         plt.ylabel('Count')
         plt.legend()
         plt.grid(True)
-        plt.savefig("confidence_histogram.png")
+        plt.savefig(f"{file_name}.pdf")
         plt.close()
 
 
-    def entropy_plot(self, OOD_pred, ID_pred):
+    def entropy_plot(self, ID_pred, OOD_pred, file_name):
 
         OOD_entropy = entropy(OOD_pred.T)
         ID_entropy = entropy(ID_pred.T)
@@ -84,10 +84,10 @@ class metric():
         plt.ylabel("Density")
         plt.legend()
         plt.tight_layout()        
-        plt.savefig("Entropy_density.png")
+        plt.savefig(f"{file_name}.pdf")
         plt.close()
 
-    def plot_images(self, ID_img, ID_entropy, OOD_img, OOD_entropy):
+    def plot_images(self, ID_img, ID_entropy, OOD_img, OOD_entropy, file_name):
         n = len(ID_img)
         _, axes = plt.subplots(2, n, figsize=(n * 1.5, 3))
         
@@ -104,11 +104,11 @@ class metric():
         
         axes[0, 0].set_ylabel("ID", fontsize=10)
         axes[1, 0].set_ylabel("OOD", fontsize=10)
-        plt.savefig("Qualitative.png")
+        plt.savefig(f"{file_name}.pdf")
         plt.close()
             
 
-    def qualitative(self, ID_pred, ID_loader, OOD_pred, OOD_loader, k=10):
+    def qualitative(self, ID_pred, ID_loader, OOD_pred, OOD_loader, file_name, k=10):
 
         ID_pred = entropy(ID_pred.T)
         OOD_pred = entropy(OOD_pred.T)
@@ -126,4 +126,4 @@ class metric():
         OOD_images = torch.cat(OOD_images)
 
         idx = np.random.choice(len(ID_images), size=k, replace=False)
-        self.plot_images(ID_images[idx], ID_pred[idx], OOD_images[idx], ID_pred[idx])
+        self.plot_images(ID_images[idx], ID_pred[idx], OOD_images[idx], ID_pred[idx], file_name)
