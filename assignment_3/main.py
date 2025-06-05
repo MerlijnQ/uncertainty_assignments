@@ -18,17 +18,13 @@ from metrics import metric
 
 LEARNING_RATE = 1e-2
 BATCH_SIZE = 64
-EPOCHS = 1
+EPOCHS = 25
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 writer = SummaryWriter(log_dir="logs")
 
 
 def Temp_scale():
     "Based on the calibration plots we can finetune our model. Optionally we can calculate ECE"
-    pass
-
-
-def set_seed():
     pass
 
 
@@ -117,7 +113,7 @@ def train_bcnn(training_loader, val_loader) -> BayesianCNN:
                 kl += _kl
                 outputs[:, :, i] = F.log_softmax(model_output, dim=1)
 
-            outputs = utils.logmeanexp(outputs, dim=2)
+            outputs = utils.logmeanexp(outputs, dim=2).to(DEVICE)
             kl = kl / num_ens
 
             beta = metrics.get_beta(i-1, BATCH_SIZE, "standard", epoch, EPOCHS)
@@ -129,17 +125,20 @@ def train_bcnn(training_loader, val_loader) -> BayesianCNN:
         mean_loss = statistics.mean(train_results)
         writer.add_scalar(f"Training loss - bcnn", mean_loss, epoch)
 
-        # Val loop (TODO)
+        # Val loop
         val_results = []
         for i, (x_batch, y_batch) in enumerate(val_loader):
             x_batch, y_batch = x_batch.to(DEVICE), y_batch.to(DEVICE)
             outputs = torch.zeros(x_batch.shape[0], model.num_classes, num_ens)
 
+            kl = 0.0
             for i in range(num_ens):
-                model_outputs, _ = model.forward(x_batch)
+                model_outputs, _kl = model.forward(x_batch)
+                kl += _kl
                 outputs[:, :, i] = F.log_softmax(model_outputs, dim=1).data
 
-            outputs = utils.logmeanexp(outputs, dim=2)
+            kl = kl / num_ens
+            outputs = utils.logmeanexp(outputs, dim=2).to(DEVICE)
 
             beta = metrics.get_beta(i-1, BATCH_SIZE, "standard", epoch, EPOCHS)
             loss_value = loss(outputs, y_batch, kl, beta)
@@ -171,17 +170,8 @@ def test_bcnn(testing_loader, model: BayesianCNN):
         print(outputs)
         accs.append(metrics.acc(outputs, y_batch))
         # results.append((outputs, y_batch))
-        break
     
     return accs
-
-
-def inference():
-    pass
-
-
-def deep_ensemble():
-    pass
 
 
 def get_data(val_ratio=0.1):
@@ -222,16 +212,26 @@ def get_data(val_ratio=0.1):
         fmnist_train_loader, fmnist_val_loader, fmnist_test_loader
     )
 
+
 def main():
+    # Get data
     (mnist_train_loader, mnist_val_loader, mnist_test_loader,
      fmnist_train_loader, fmnist_val_loader, fmnist_test_loader) = get_data()
+    
+    # Train models
     bayesian_cnn = train_bcnn(mnist_train_loader, mnist_val_loader)
     results_bayesian = test_bcnn(mnist_test_loader, bayesian_cnn)
-    print(results_bayesian)
-    exit()
+
+    # Calibration plot (1)
+
+    # Calibration
     
+    # Calibration plot (2)
+
+    # Test models    
     ensemble_cnn = train_ensemble(mnist_train_loader, mnist_test_loader)
 
+    # Create final plots
 
 if __name__ == "__main__":
     main()

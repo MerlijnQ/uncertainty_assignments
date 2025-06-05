@@ -4,6 +4,7 @@ from torch.nn import functional as F
 
 "We scale the temperature to get a better calibrated model. The code is inspired on the following github: https://github.com/gpleiss/temperature_scaling/blob/master/temperature_scaling.py#L78"
 
+
 class calibratedModel(nn.Module):
     def __init__(self, model):
         super(calibratedModel, self).__init__()
@@ -14,7 +15,8 @@ class calibratedModel(nn.Module):
         logits = self.model(input)
         temp = self.temperature.unsqueeze(1).expand_as(logits)
         return logits/temp
-    
+
+
 class calibrate():
     def __init__(self, model: calibratedModel, criterion=nn.CrossEntropyLoss, device='cpu'):  
         self.model = model
@@ -46,5 +48,3 @@ class calibrate():
         optimizer.step(eval)
         print(f"Optimal temperature: {self.model.temperature.item():.4f}")
         return self.model        
-
-        
