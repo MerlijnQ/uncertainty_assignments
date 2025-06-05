@@ -1,5 +1,7 @@
+import os
 import sys
-sys.path.append("..")
+# sys.path.append("..")
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import math
 import torch
@@ -8,7 +10,7 @@ import torch.nn.functional as F
 from torch.nn import Parameter
 
 import utils
-from metrics import calculate_kl as KL_DIV
+from BCNN.metrics import calculate_kl as KL_DIV
 import config_bayesian as cfg
 from ..misc import ModuleWrapper
 
