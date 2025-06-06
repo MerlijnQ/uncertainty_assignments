@@ -14,7 +14,7 @@ from basicCNN import basicCNN
 from bbb import BayesianCNN
 
 LEARNING_RATE = 1e-2
-EPOCHS = 1
+EPOCHS = 25
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 writer = SummaryWriter(log_dir="logs")
 
