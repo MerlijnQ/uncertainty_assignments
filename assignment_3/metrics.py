@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import roc_auc_score, roc_curve
 from scipy.stats import entropy
-import seaborn as sns
 import torch
 
 
@@ -13,10 +12,14 @@ class Metric():
         print("Metrics initialized. Note that each metric expetcs softmax predictions. We assume all predictions are .cpu().numpy()")
 
     def auroc(self, ID_score, OOD_score, file_name, entropy_pred=True):
-        y_true = np.concatenate(np.zeros_like(len(ID_score)), np.ones_like(len(OOD_score)))
+        y_true = np.concatenate([
+            np.zeros(len(ID_score)),
+            np.ones(len(OOD_score))
+        ])
+
         if entropy_pred:
-            ID_score, OOD_score = entropy(ID_score.T), entropy(OOD_score.T)
-        scores = np.concatenate(ID_score, OOD_score, axis = 0)
+            ID_score, OOD_score = entropy(ID_score, axis=1), entropy(OOD_score, axis=1)
+        scores = np.concatenate([ID_score, OOD_score], axis = 0)
 
         false_possitive_rate, true_positive_rate, _ = roc_curve(y_true, scores)
         auroc = roc_auc_score(y_true, scores)
@@ -76,15 +79,17 @@ class Metric():
         plt.close()
 
 
-    def entropy_plot(self, ID_pred, OOD_pred, file_name):
+    def entropy_plot(self, ID_pred, OOD_pred, file_name, bins=10):
 
-        OOD_entropy = entropy(OOD_pred.T)
-        ID_entropy = entropy(ID_pred.T)
+        OOD_entropy = entropy(OOD_pred, axis=1)
+        ID_entropy = entropy(ID_pred, axis=1)
 
-        sns.kdeplot(ID_entropy, label='In-Distribution', fill=True, color='blue')
-        sns.kdeplot(OOD_entropy, label='Out-of-Distribution', fill=True, color='red')
+        plt.hist(ID_entropy, bins=bins, alpha=0.6, label='In-Distribution', color='blue')
+        plt.hist(OOD_entropy, bins=bins, alpha=0.6, label='Out-of-Distribution', color='red')
+        # sns.kdeplot(ID_entropy, label='In-Distribution', fill=True, color='blue')
+        # sns.kdeplot(OOD_entropy, label='Out-of-Distribution', fill=True, color='red')
         plt.xlabel("Entropy score")
-        plt.ylabel("Density")
+        plt.ylabel("Count")
         plt.legend()
         plt.tight_layout()        
         plt.savefig(f"{file_name}.pdf")
@@ -113,8 +118,8 @@ class Metric():
 
     def qualitative(self, ID_pred, ID_loader, OOD_pred, OOD_loader, file_name, k=10):
 
-        ID_pred = entropy(ID_pred.T)
-        OOD_pred = entropy(OOD_pred.T)
+        ID_pred = entropy(ID_pred, axis=1)
+        OOD_pred = entropy(OOD_pred, axis=1)
 
 
         ID_images = []
@@ -129,4 +134,4 @@ class Metric():
         OOD_images = torch.cat(OOD_images)
 
         idx = np.random.choice(len(ID_images), size=k, replace=False)
-        self.plot_images(ID_images[idx], ID_pred[idx], OOD_images[idx], ID_pred[idx], file_name)
+        self.plot_images(ID_images[idx], ID_pred[idx], OOD_images[idx], OOD_pred[idx], file_name)

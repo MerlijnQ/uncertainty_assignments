@@ -101,7 +101,7 @@ class TrainInference():
                 
                 train_results.append(loss_value.item())
             mean_loss = statistics.mean(train_results)
-            writer.add_scalar(f"Training loss - bcnn", mean_loss, epoch)
+            writer.add_scalar("Training loss - bcnn", mean_loss, epoch)
 
             # Val loop
             val_results = []
@@ -122,7 +122,7 @@ class TrainInference():
                 loss_value = loss_val(outputs, y_batch, kl, beta)
                 val_results.append(loss_value.item())
             mean_loss = statistics.mean(val_results)
-            writer.add_scalar(f"Validation loss - bcnn", mean_loss, epoch)
+            writer.add_scalar("Validation loss - bcnn", mean_loss, epoch)
 
         return model
 
@@ -138,9 +138,12 @@ class TrainInference():
             logits = []
             x_batch = x_batch.to(DEVICE)
             labels.append(y_batch.detach().cpu().numpy())
-            output, _ = model(x_batch)
-            logits.append(output.detach().cpu())
+            output = model(x_batch)
 
+            if isinstance(output, tuple):
+                output, _ = output
+
+            logits.append(output.detach().cpu())
             probs = F.softmax(torch.stack(logits), dim=-1)
             mean_probs.append(torch.mean(probs, dim=0))
 
