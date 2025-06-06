@@ -85,10 +85,10 @@ def main():
     metric_maker.calibration_plot(predictions, labels, "calibration_ens_2")
 
     # Test models
-    mnist_results_bayesian = inference_functions.bayesian_inference(mnist_test_loader, calibrated_bayesian_cnn)
-    mnist_results_ensemble = inference_functions.ensemble_inference(mnist_test_loader, calibrated_ensemble_cnn)
-    fmnist_results_bayesian = inference_functions.bayesian_inference(fmnist_test_loader, calibrated_bayesian_cnn)
-    fmnist_results_ensemble = inference_functions.ensemble_inference(fmnist_test_loader, calibrated_ensemble_cnn)
+    mnist_results_bayesian, _ = inference_functions.bayesian_inference(mnist_test_loader, calibrated_bayesian_cnn)
+    mnist_results_ensemble, _ = inference_functions.ensemble_inference(mnist_test_loader, calibrated_ensemble_cnn)
+    fmnist_results_bayesian, _ = inference_functions.bayesian_inference(fmnist_test_loader, calibrated_bayesian_cnn)
+    fmnist_results_ensemble, _ = inference_functions.ensemble_inference(fmnist_test_loader, calibrated_ensemble_cnn)
 
     # Create final plots
     metric_maker.auroc(mnist_results_bayesian, fmnist_results_bayesian, "AUROC_bayesian")
