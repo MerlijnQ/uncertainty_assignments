@@ -2,16 +2,17 @@ import os
 import torch
 
 from torchvision import datasets, transforms
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
 
 from metrics import Metric
 from bbb import BayesianCNN
 from basicCNN import basicCNN
 from train_test_models import TrainInference
-from tempScaling import Calibrate, CalibratedModel
+from tempScaling import Calibrate
 
 BATCH_SIZE = 64
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 def get_data(val_ratio=0.1):
@@ -73,7 +74,7 @@ def main():
     metric_maker.calibration_plot(predictions, labels, "calibration_ens_1")
 
     # Calibration    
-    calibrator = Calibrate()
+    calibrator = Calibrate(device=DEVICE)
     calibrated_bayesian_cnn = calibrator.optimize(mnist_val_loader, bayesian_cnn)
     calibrated_ensemble_cnn = [calibrator.optimize(mnist_val_loader, ensemble_cnn[i]) for i in range(len(ensemble_cnn))]
     
