@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import roc_auc_score, roc_curve
 from scipy.stats import entropy
-import seaborn as sns
 import torch
 
 
@@ -80,15 +79,17 @@ class Metric():
         plt.close()
 
 
-    def entropy_plot(self, ID_pred, OOD_pred, file_name):
+    def entropy_plot(self, ID_pred, OOD_pred, file_name, bins=10):
 
         OOD_entropy = entropy(OOD_pred, axis=1)
         ID_entropy = entropy(ID_pred, axis=1)
 
-        sns.kdeplot(ID_entropy, label='In-Distribution', fill=True, color='blue')
-        sns.kdeplot(OOD_entropy, label='Out-of-Distribution', fill=True, color='red')
+        plt.hist(ID_entropy, bins=bins, alpha=0.6, label='In-Distribution', color='blue')
+        plt.hist(OOD_entropy, bins=bins, alpha=0.6, label='Out-of-Distribution', color='red')
+        # sns.kdeplot(ID_entropy, label='In-Distribution', fill=True, color='blue')
+        # sns.kdeplot(OOD_entropy, label='Out-of-Distribution', fill=True, color='red')
         plt.xlabel("Entropy score")
-        plt.ylabel("Density")
+        plt.ylabel("Count")
         plt.legend()
         plt.tight_layout()        
         plt.savefig(f"{file_name}.pdf")
